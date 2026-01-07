@@ -19,15 +19,15 @@ FROM FACT_VENTAS fv
 -- Así nos da una visión real de si hay algún cliente inactivo.
 
 SELECT 
-	dc.PK_CLIENTE,
-	dc.NOMBRE
+	dc.NOMBRE,
+	COUNT(*) AS numero_ventas
 FROM DIM_CLIENTES dc 
 LEFT JOIN FACT_VENTAS fv 
 	ON dc.PK_CLIENTE = fv.FK_CLIENTE 
+GROUP BY dc.PK_CLIENTE;
 -- Hasta aquí vemos qué compras ha hecho cada cliente.
 
-SELECT 
-	dc.PK_CLIENTE,
+SELECT
 	dc.NOMBRE
 FROM DIM_CLIENTES dc 
 LEFT JOIN FACT_VENTAS fv 
@@ -39,7 +39,6 @@ WHERE fv.FK_CLIENTE IS NULL;
 -- La línea de Maitadona Beauty y Maitadona Natura es nueva y aún no se ha podido comprar por ello debería devolvernos esos 3 productos de esa línea.
 
 SELECT
-	dp.PK_PRODUCTO,
 	dp.MARCA,
 	dp.CATEGORIA 
 FROM FACT_VENTAS fv 
@@ -51,24 +50,20 @@ WHERE fv.FK_PRODUCTO IS NULL;
 
 -- Para comprobar ahora qué productos NO se han vendido en los diferentes territorios
 SELECT 
-	dp.PK_PRODUCTO,
 	dp.MARCA,
 	dp.SUBCATEGORIA AS PRODUCTO,
-	dl.NOMBRE AS UBICACIÓN
+	dl.NOMBRE AS UBICACION
 FROM DIM_PRODUCTO dp
-CROSS JOIN DIM_LOCALIZACION dl 
+JOIN DIM_LOCALIZACION dl 
 ORDER BY dp.PK_PRODUCTO ASC;
 -- Vemos todos los productos y en qué localizaciones se han vendido.
 
--- Para identificar productos sin ventas por territorio/localización se realizan
--- todas las combinaciones posibles entre producto y localización con un 'CROSS JOIN'.
-SELECT 
-	dp.PK_PRODUCTO,
+SELECT
 	dp.MARCA,
 	dp.SUBCATEGORIA AS PRODUCTO,
-	dl.NOMBRE AS UBICACIÓN
+	dl.NOMBRE AS UBICACION
 FROM DIM_PRODUCTO dp
-CROSS JOIN DIM_LOCALIZACION dl 
+JOIN DIM_LOCALIZACION dl 
 LEFT JOIN FACT_VENTAS fv 
 	ON fv.FK_PRODUCTO = dp.PK_PRODUCTO 
 	AND fv.FK_LOCALIZACION = dl.PK_LOCALIZACION 
@@ -127,17 +122,6 @@ clasificacion_productos AS (
 -- Podemos destacar 4 productos Best Seller en este mes que han sido el Yogur de fruta, la Sopa
 -- Las manzanas y el detergente. Todos ellos de marcas diferentes.
 
--- Eliminar
-SELECT 
-	fv.FK_PRODUCTO, 
-	fv.IMPORTE,
-	df.FINDE AS FIN_DE_SEMANA, -- booleano que nos dice True si es Fin de Semana y False si no es Fin de Semana
-	COUNT(*) OVER (
-		PARTITION BY df.FINDE
-	) AS total_ventas_por_tipo_dia 
-FROM FACT_VENTAS fv 
-JOIN DIM_FECHA df 
-	ON fv.FK_FECHA = df.PK_FECHA 
 	
 -- Fin de Semana
 SELECT
@@ -154,7 +138,24 @@ GROUP BY df.FINDE;
 -- durante la semana.
 
 SELECT
-    fv.FK_PRODUCTO,
+    df.FINDE AS fin_de_semana,
+    COUNT(*) AS numero_ventas,
+    SUM(fv.IMPORTE) AS importe_total,
+    CASE
+        WHEN df.FINDE = 0 THEN COUNT(*) / 5.0
+        ELSE COUNT(*)
+    END AS numero_ventas_dia,
+    CASE
+        WHEN df.FINDE = 0 THEN SUM(fv.IMPORTE) / 5.0
+        ELSE SUM(fv.IMPORTE)
+    END AS importe_total_dia
+FROM FACT_VENTAS fv
+JOIN DIM_FECHA df
+    ON fv.FK_FECHA = df.PK_FECHA
+GROUP BY df.FINDE;
+-- El numero de ventas por dia y la facturación por día es mucho mayor en Sabado.
+
+SELECT
     fv.IMPORTE,
     df.FINDE AS FIN_DE_SEMANA,
     RANK() OVER (
@@ -166,6 +167,7 @@ JOIN DIM_FECHA df
     ON fv.FK_FECHA = df.PK_FECHA;
 
 -- Ranking de ventas en función de la Localización.
+
 SELECT
     dl.PK_LOCALIZACION,
     dl.NOMBRE,
@@ -173,7 +175,6 @@ SELECT
     fv.FK_PRODUCTO,
     COUNT(*) AS numero_ventas,
     RANK() OVER (
-        PARTITION BY dl.PK_LOCALIZACION
         ORDER BY COUNT(*) DESC
     ) AS ranking_localizaciones
 FROM FACT_VENTAS fv
@@ -187,6 +188,7 @@ GROUP BY
 ORDER BY
     ranking_localizaciones;
 
+DROP VIEW IF EXISTS view_ranking_localizaciones;
 -- VIEW para el ranking de localizaciones con mayores ventas.
 CREATE VIEW view_ranking_localizaciones AS 
 SELECT
@@ -196,7 +198,6 @@ SELECT
     fv.FK_PRODUCTO,
     COUNT(*) AS numero_ventas,
     RANK() OVER (
-        PARTITION BY dl.PK_LOCALIZACION
         ORDER BY COUNT(*) DESC
     ) AS ranking_localizaciones
 FROM FACT_VENTAS fv 
@@ -262,7 +263,7 @@ GROUP BY
 
 SELECT * 
 FROM vw_resumen_ventas_provincia vrvp
-ORDER BY numero_ventas DESC;
+ORDER BY importe_total DESC;
 
 -- El análisis final permite visualizar los diferentes volumenes de facturación en función de las diferentes 
 -- ciudades:
@@ -270,7 +271,7 @@ ORDER BY numero_ventas DESC;
 -- Podemos observar también que el volumen de demanda es muy similar entre las Ciudades de Valencia, Bilbao, Sevilla y Málaga.
 -- La vista resumen facilita la detección de zonas con alta y baja demanda.
 -- Por otro lado, también podemos observar que el importe_medio de las compras de los clientes es mayor en las ciudades de 
--- Zaragoza y Málaga.
+-- Zaragoza y Sevilla.
 -- Como conclusión de negocio, la segunda ciudad con más población de España (Barcelona), es la que tiene el nivel de demanda 
 -- más bajo y también la que tiene el importe_medio más bajo. Por ello, habría que valorar cuál puede ser el motivo, implementar
 -- estrategias de marketing más orientadas al público de Barcelona o valorar si es rentable mantener el supermercado abierto en 
